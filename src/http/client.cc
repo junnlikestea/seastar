@@ -38,9 +38,6 @@ module seastar;
 #include <seastar/core/when_all.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/http/client.hh>
-#include <seastar/http/request.hh>
-#include <seastar/http/reply.hh>
-#include <seastar/http/response_parser.hh>
 #include <seastar/http/internal/content_source.hh>
 #include <seastar/util/defer.hh>
 #include <seastar/util/short_streams.hh>
@@ -210,14 +207,12 @@ future<> connection::close() {
 }
 
 client::client(socket_address addr)
-        : client(std::make_unique<basic_connection_factory>(std::move(addr)))
-{
-}
+    : client(std::make_unique<basic_connection_factory>(std::move(addr))) {}
 
-client::client(socket_address addr, shared_ptr<tls::certificate_credentials> creds, sstring host)
-        : client(std::make_unique<tls_connection_factory>(std::move(addr), std::move(creds), std::move(host)))
-{
-}
+client::client(socket_address addr,
+               shared_ptr<tls::certificate_credentials> creds, sstring host)
+    : client(std::make_unique<tls_connection_factory>(
+          std::move(addr), std::move(creds), std::move(host))) {}
 
 static std::unique_ptr<retry_strategy> get_strategy(client::retry_requests retry) {
     if (retry == client::retry_requests::no) {
@@ -240,6 +235,43 @@ client::client(std::unique_ptr<connection_factory> f, unsigned max_connections, 
         , _retry_strategy(std::move(retry_strategy))
 {
     assert(_retry_strategy);
+}
+
+future<client::connection_ptr> client::get_connection(abort_source *as) {
+  if (!_pool.empty()) {
+    connection_ptr con = _pool.front().shared_from_this();
+    _pool.pop_front();
+    http_log.trace("pop http connection {} from pool",
+                   con->_fd.local_address());
+    return make_ready_future<connection_ptr>(con);
+  }
+
+  if (_nr_connections >= _max_connections) {
+    auto sub = as ? as->subscribe([this]() noexcept { _wait_con.broadcast(); })
+                  : std::nullopt;
+    return _wait_con.wait().then([this, as, sub = std::move(sub)] {
+      if (as != nullptr && as->abort_requested()) {
+        return make_exception_future<client::connection_ptr>(
+            as->abort_requested_exception_ptr());
+      }
+      return get_connection(as);
+    });
+  }
+
+  return make_connection(as);
+}
+
+client::client(socket_address addr, shared_ptr<tls::certificate_credentials> creds, sstring host)
+        : client(std::make_unique<tls_connection_factory>(std::move(addr), std::move(creds), std::move(host)))
+{
+}
+
+client::client(std::unique_ptr<connection_factory> f, unsigned max_connections, retry_requests retry, size_t max_bytes_to_drain)
+        : _new_connections(std::move(f))
+        , _max_connections(max_connections)
+        , _max_bytes_to_drain(max_bytes_to_drain)
+        , _retry(retry)
+{
 }
 
 future<client::connection_ptr> client::get_connection(abort_source* as) {

@@ -1393,7 +1393,9 @@ public:
     }
 
     void verify() {
-        if (!_creds->_enable_certificate_verification) {
+        // Check both global credentials setting and per-session options
+        // to allow fine-grained control over certificate verification
+        if (!_creds->_enable_certificate_verification || !_options.verify_certificate) {
             return;
         }
 
