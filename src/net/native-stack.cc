@@ -170,6 +170,8 @@ private:
     }
     using tcp4 = tcp<ipv4_traits>;
 public:
+    // Dasai extension: Expose ipv4 layer for raw packet access (TCP SYN scanning)
+    ipv4& get_ipv4() { return _inet; }
     explicit native_network_stack(const native_stack_options& opts, std::shared_ptr<device> dev);
     virtual server_socket listen(socket_address sa, listen_options opt) override;
     virtual ::seastar::socket socket() override;
