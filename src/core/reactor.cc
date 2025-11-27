@@ -119,9 +119,6 @@ module;
 #include <typeinfo>
 #endif
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/core/abort_on_ebadf.hh>
 #include <seastar/core/alien.hh>
 #include <seastar/core/exception_hacks.hh>
@@ -179,7 +176,6 @@ module seastar;
 #ifdef SEASTAR_HAVE_DPDK
 #include <seastar/core/dpdk_rte.hh>
 #endif
-#endif // SEASTAR_MODULE
 #include <seastar/util/assert.hh>
 #include <seastar/core/internal/systemwide_memory_barrier.hh>
 
@@ -1079,6 +1075,11 @@ reactor::reactor(std::shared_ptr<seastar::smp> smp, alien::instance& alien, unsi
             fn();
         }));
     });
+
+    _loads.reserve(loads_size);
+    for (unsigned i = 0; i < loads_size; i++) {
+        _loads.push_back(0.0);
+    }
 }
 
 reactor::~reactor() {
@@ -3289,24 +3290,20 @@ int reactor::do_run() {
     poller sig_poller(std::make_unique<signal_pollfn>(*this));
 
     using namespace std::chrono_literals;
-    timer<lowres_clock> load_timer;
     auto last_idle = _total_idle;
     auto idle_start = now(), idle_end = idle_start;
-    load_timer.set_callback([this, &last_idle, &idle_start, &idle_end] () mutable {
+    _load_timer.set_callback([this, &last_idle, &idle_start, &idle_end] () mutable {
         _total_idle += idle_end - idle_start;
         auto load = double((_total_idle - last_idle).count()) / double(std::chrono::duration_cast<sched_clock::duration>(1s).count());
         last_idle = _total_idle;
         load = std::min(load, 1.0);
         idle_start = idle_end;
+        _load -= _loads.back() / loads_size;
+        _loads.pop_back();
         _loads.push_front(load);
-        if (_loads.size() > 5) {
-            auto drop = _loads.back();
-            _loads.pop_back();
-            _load -= (drop/5);
-        }
-        _load += (load/5);
+        _load += (load / loads_size);
     });
-    load_timer.arm_periodic(1s);
+    _load_timer.arm_periodic(1s);
 
     itimerspec its = seastar::posix::to_relative_itimerspec(_cfg.task_quota, _cfg.task_quota);
     _task_quota_timer.timerfd_settime(0, its);
@@ -3383,7 +3380,7 @@ int reactor::do_run() {
         }
     }
 
-    load_timer.cancel();
+    _load_timer.cancel();
     // Final tasks may include sending the last response to cpu 0, so run them
     while (have_more_tasks()) {
         _cpu_sched.run_some_tasks();
@@ -4166,6 +4163,11 @@ static void sigabrt_action(siginfo_t *info, ucontext_t* uc) noexcept {
     reraise_signal(SIGABRT);
 }
 
+static void sigill_action(siginfo_t *info, ucontext_t* uc) noexcept {
+    print_with_backtrace("Invalid instruction");
+    reraise_signal(SIGILL);
+}
+
 // We don't need to handle SIGSEGV when asan is enabled.
 #ifdef SEASTAR_ASAN_ENABLED
 template<>
@@ -4275,6 +4277,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
 
     install_oneshot_signal_handler<SIGSEGV, sigsegv_action>();
     install_oneshot_signal_handler<SIGABRT, sigabrt_action>();
+    install_oneshot_signal_handler<SIGILL, sigill_action>();
 
 #ifdef SEASTAR_HAVE_DPDK
     const auto* native_stack = dynamic_cast<const net::native_stack_options*>(reactor_opts.network_stack.get_selected_candidate_opts());
@@ -4604,7 +4607,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
             }
             sigset_t mask;
             sigfillset(&mask);
-            for (auto sig : { SIGSEGV }) {
+            for (auto sig : { SIGSEGV, SIGILL }) {
                 sigdelset(&mask, sig);
             }
             auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);

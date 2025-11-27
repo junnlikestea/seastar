@@ -56,12 +56,10 @@
 #include <seastar/net/api.hh>
 #include <seastar/util/eclipse.hh>
 #include <seastar/util/log.hh>
-#include <seastar/util/modules.hh>
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/util/std-compat.hh>
 #include "internal/pollable_fd.hh"
 
-#ifndef SEASTAR_MODULE
 #include <atomic>
 #include <cassert>
 #include <chrono>
@@ -76,7 +74,6 @@
 #include <sys/socket.h>
 #include <netinet/ip.h>
 
-#endif
 
 struct statfs;
 struct _Unwind_Exception;
@@ -88,7 +85,6 @@ using shard_id = unsigned;
 namespace alien {
 class instance;
 }
-SEASTAR_MODULE_EXPORT
 class reactor;
 
 }
@@ -141,7 +137,6 @@ future<> posix_connect(pollable_fd pfd, socket_address sa, socket_address local)
 }
 
 class io_queue;
-SEASTAR_MODULE_EXPORT
 class io_intent;
 
 class io_completion : public kernel_completion {
@@ -152,7 +147,6 @@ public:
     virtual void set_exception(std::exception_ptr eptr) noexcept = 0;
 };
 
-SEASTAR_MODULE_EXPORT
 class reactor {
 private:
     struct sched_entity;
@@ -352,6 +346,8 @@ private:
     std::unique_ptr<network_stack> _network_stack;
     lowres_clock::time_point _lowres_next_timeout = lowres_clock::time_point::max();
     std::optional<pollable_fd> _aio_eventfd;
+    static constexpr unsigned loads_size = 5;
+    timer<lowres_clock> _load_timer;
     circular_buffer<double> _loads;
     double _load = 0;
     // Next two fields are required to enforce the monotonicity of total_steal_time()
@@ -778,12 +774,10 @@ public:
 
 extern __thread reactor* local_engine;
 
-SEASTAR_MODULE_EXPORT
 inline reactor& engine() {
     return *local_engine;
 }
 
-SEASTAR_MODULE_EXPORT
 inline bool engine_is_ready() {
     return local_engine != nullptr;
 }
