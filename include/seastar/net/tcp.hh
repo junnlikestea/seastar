@@ -1821,7 +1821,15 @@ void tcp<InetTraits>::tcb::close() noexcept {
         return;
     }
     // TODO: We should return a future to upper layer
-    (void)wait_for_all_data_acked().then([this, zis = this->shared_from_this()] () mutable {
+    // Note: We must handle exceptions from wait_for_all_data_acked() to prevent
+    // "broken promise" warnings when the connection is reset by peer or times out.
+    // The close operation is best-effort - if the peer resets the connection,
+    // we still want to proceed with cleanup without logging spurious warnings.
+    (void)wait_for_all_data_acked().then_wrapped([this, zis = this->shared_from_this()] (future<> f) mutable {
+        if (f.failed()) {
+            // Connection was reset or error occurred - proceed with close anyway
+            f.ignore_ready_future();
+        }
         _snd.closed = true;
         tcp_debug("close: unsent_len=%d\n", _snd.unsent_len);
         if (in_state(CLOSE_WAIT)) {
