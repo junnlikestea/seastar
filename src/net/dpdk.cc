@@ -1555,7 +1555,22 @@ int dpdk_device::init_port_start()
             printf("Port %d: RSS table size is %d\n",
                    _port_idx, _dev_info.reta_size);
         } else {
-            _rss_table_bits = std::lround(std::log2(_dev_info.max_rx_queues));
+            // Device doesn't support RETA query (reta_size == 0).
+            // This happens with some NICs like Broadcom bnxt.
+            // Create AND populate a software RSS table immediately.
+            // (set_rss_table() will be skipped when reta_size == 0)
+            auto sw_reta_size = std::max(16u, 1u << static_cast<unsigned>(
+                std::lround(std::log2(_dev_info.max_rx_queues))));
+            _redir_table.resize(sw_reta_size);
+            _rss_table_bits = std::lround(std::log2(sw_reta_size));
+
+            // Populate with round-robin queue assignment (same logic as set_rss_table)
+            for (unsigned i = 0; i < sw_reta_size; ++i) {
+                _redir_table[i] = i % _num_queues;
+            }
+
+            printf("Port %d: Device reta_size=0, using software RSS table size %u\n",
+                   _port_idx, sw_reta_size);
         }
     } else {
         _redir_table.push_back(0);
