@@ -394,7 +394,7 @@ private:
         static constexpr std::chrono::milliseconds _rto_max{60000};
         // Clock granularity
         static constexpr std::chrono::milliseconds _rto_clk_granularity{1};
-        static constexpr uint16_t _max_nr_retransmit{5};
+        static constexpr uint16_t _max_nr_retransmit{1};
         timer<lowres_clock> _retransmit;
         timer<lowres_clock> _persist;
         uint16_t _nr_full_seg_received = 0;
