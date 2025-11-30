@@ -127,7 +127,9 @@ namespace seastar {
 namespace dpdk {
 
 /******************* Net device related constatns *****************************/
-static constexpr uint16_t default_ring_size      = 512;
+// Increased from 512 to 1024 to support Broadcom bnxt NICs which require
+// 2048 mbufs per RX queue (mbufs_per_queue_rx = 2 * default_ring_size)
+static constexpr uint16_t default_ring_size      = 1024;
 
 //
 // We need 2 times the ring size of buffers because of the way PMDs
