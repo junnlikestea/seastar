@@ -131,6 +131,7 @@ public:
     explicit interface(std::shared_ptr<device> dev);
     ethernet_address hw_address() const noexcept { return _hw_address; }
     const net::hw_features& hw_features() const { return _hw_features; }
+    device* get_device() const noexcept { return _dev.get(); }
     future<> register_l3(eth_protocol_num proto_num,
             std::function<future<> (packet p, ethernet_address from)> next,
             std::function<bool (forward_hash&, packet&, size_t)> forward);

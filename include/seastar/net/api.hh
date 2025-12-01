@@ -62,6 +62,10 @@ socket_address make_ipv4_address(uint32_t ip, uint16_t port) noexcept {
 
 namespace net {
 
+// Forward declarations for raw network access
+class ipv4;
+class device;
+
 // see linux tcp(7) for parameter explanation
 struct tcp_keepalive_params {
     std::chrono::seconds idle; // TCP_KEEPIDLE
@@ -500,6 +504,11 @@ public:
      * return by value.
      */
     virtual std::vector<network_interface> network_interfaces();
+
+    // Raw network access for advanced use cases (TCP SYN scanning, etc.)
+    // Returns nullptr for POSIX stack, actual pointer for native stack
+    virtual net::ipv4* get_ipv4_if_available() { return nullptr; }
+    virtual net::device* get_device_if_available() { return nullptr; }
 };
 
 struct network_stack_entry {
